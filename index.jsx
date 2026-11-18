@@ -1,4 +1,8 @@
+import React from "react";
 import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { render } from "@react-email/render";
+import { Resend } from "resend";
+import WeeklyDigest from "./emails/WeeklyDigest.jsx";
 
 const config = JSON.parse(await readFile(new URL("./config.json", import.meta.url)));
 const FIRECRAWL_API_KEY = process.env.FIRECRAWL_API_KEY;
@@ -59,26 +63,28 @@ for (const company of config.companies) {
     const seen = new Set(previous ?? []);
     const fresh = jobs.filter((j) => matches(j) && (previous === null || !seen.has(j.id)));
     console.log(`${company.name}: ${jobs.length} open roles, ${fresh.length} new matches${previous === null ? " (first run)" : ""}`);
-    if (fresh.length) sections.push({ company: company.name, jobs: fresh });
+    if (fresh.length) sections.push({ company: company.name, jobs: fresh.slice(0, config.maxPerCompany ?? 10), more: Math.max(0, fresh.length - (config.maxPerCompany ?? 10)) });
   } catch (error) {
     console.log(`Skipped ${error.message}`);
   }
 }
 console.log(`Firecrawl credits used: ${credits}`);
 
-const escape = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
-const html = sections.length
-  ? sections
-      .map((s) => `<h2>${escape(s.company)}</h2><ul>${s.jobs.map((j) => `<li><a href="${escape(j.url)}">${escape(j.title)}</a>, ${escape(j.location)}</li>`).join("")}</ul>`)
-      .join("")
-  : "<p>No new matching roles this week.</p>";
-await writeFile(new URL("./digest.html", import.meta.url), `<h1>New roles this week</h1>${html}`);
+const week = new Date().toISOString().slice(0, 10);
+const email = <WeeklyDigest week={week} sections={sections} />;
+await writeFile(new URL("./digest.html", import.meta.url), await render(email));
 
-if (process.env.RESEND_API_KEY && sections.length) {
-  const res = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from: config.from, to: [config.to], subject: "New roles this week", html: `<h1>New roles this week</h1>${html}` }),
+if (!sections.length) {
+  console.log("No new matching roles, nothing to send.");
+} else if (process.env.RESEND_API_KEY) {
+  const resend = new Resend(process.env.RESEND_API_KEY);
+  const { data, error } = await resend.emails.send({
+    from: config.from,
+    to: [config.to],
+    subject: "New roles this week",
+    react: email,
   });
-  console.log("Resend:", res.status, await res.text());
+  console.log(error ? `Resend error: ${error.message}` : `Sent with Resend, id ${data.id}`);
+} else {
+  console.log("Set RESEND_API_KEY to send. The email was written to digest.html.");
 }

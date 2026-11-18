@@ -28,5 +28,6 @@
   "locations": [],
   "from": "Job Alerts <alerts@your-domain.com>",
   "to": "you@example.com",
-  "maxPagesPerCompany": 5
+  "maxPagesPerCompany": 5,
+  "maxPerCompany": 10
 }
