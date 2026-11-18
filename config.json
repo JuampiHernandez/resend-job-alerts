@@ -1,0 +1,32 @@
+{
+  "companies": [
+    {
+      "name": "Resend",
+      "board": "ashby",
+      "slug": "resend"
+    },
+    {
+      "name": "Linear",
+      "board": "ashby",
+      "slug": "linear"
+    },
+    {
+      "name": "Vercel",
+      "board": "greenhouse",
+      "slug": "vercel"
+    },
+    {
+      "name": "Stripe",
+      "board": "greenhouse",
+      "slug": "stripe"
+    }
+  ],
+  "keywords": [
+    "engineer",
+    "developer"
+  ],
+  "locations": [],
+  "from": "Job Alerts <alerts@your-domain.com>",
+  "to": "you@example.com",
+  "maxPagesPerCompany": 5
+}
