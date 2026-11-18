@@ -7,7 +7,7 @@ A weekly email with the new roles at the companies you follow. [Firecrawl Alexan
 1. Node 20 or later, then `npm install`.
 2. Edit `config.json`: the companies and their board slugs (the part after `jobs.ashbyhq.com/` or `boards.greenhouse.io/`), title keywords, locations (empty means anywhere), how many roles to show per company, and the from and to addresses.
 3. `FIRECRAWL_API_KEY=fc-... npm start` fetches the roles and writes the rendered email to `digest.html`.
-4. Add `RESEND_API_KEY=re_...` to send it. `from` must use a domain verified in Resend.
+4. Add `RESEND_API_KEY=re_...` to send it. `from` must use a domain verified in Resend. For a quick test without a domain, use `onboarding@resend.dev` as `from` and your own Resend account email as `to`.
 
 The first run stores a snapshot and lists every current match. Later runs list only new matches and skip the send when there are none. Schedule it weekly with cron or any scheduler.
 
