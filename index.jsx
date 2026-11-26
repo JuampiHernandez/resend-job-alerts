@@ -1,16 +1,28 @@
 import React from "react";
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { render } from "@react-email/render";
 import { Resend } from "resend";
 import WeeklyDigest from "./emails/WeeklyDigest.jsx";
 
-const config = JSON.parse(await readFile(new URL("./config.json", import.meta.url)));
+const config = JSON.parse(
+  await readFile(new URL("./config.json", import.meta.url)),
+);
 const FIRECRAWL_API_KEY = process.env.FIRECRAWL_API_KEY;
 if (!FIRECRAWL_API_KEY) throw new Error("Set FIRECRAWL_API_KEY");
 
 const BOARDS = {
-  ashby: { provider: "ashbyhq-com", capability: "jobs/jobs", option: "board", perPage: 25 },
-  greenhouse: { provider: "greenhouse-io", capability: "jobs/jobs", option: "board_token", perPage: 200 },
+  ashby: {
+    provider: "ashbyhq-com",
+    capability: "jobs/jobs",
+    option: "board",
+    perPage: 25,
+  },
+  greenhouse: {
+    provider: "greenhouse-io",
+    capability: "jobs/jobs",
+    option: "board_token",
+    perPage: 200,
+  },
 };
 
 async function fetchJobs(company) {
@@ -20,20 +32,34 @@ async function fetchJobs(company) {
   for (let page = 1; page && page <= (config.maxPagesPerCompany ?? 5); ) {
     const res = await fetch("https://api.firecrawl.dev/v2/scrape", {
       method: "POST",
-      headers: { Authorization: `Bearer ${FIRECRAWL_API_KEY}`, "Content-Type": "application/json" },
+      headers: {
+        Authorization: `Bearer ${FIRECRAWL_API_KEY}`,
+        "Content-Type": "application/json",
+      },
       body: JSON.stringify({
         alexandria: {
           provider: board.provider,
           capability: board.capability,
-          options: { [board.option]: company.slug, page, per_page: board.perPage },
+          options: {
+            [board.option]: company.slug,
+            page,
+            per_page: board.perPage,
+          },
         },
       }),
     });
     const result = (await res.json()).data.alexandria[0];
-    if (result.error) throw new Error(`${company.name}: ${result.error.message}`);
+    if (result.error) {
+      throw new Error(`${company.name}: ${result.error.message}`);
+    }
     credits += result.creditsCost ?? 0;
     for (const job of result.data.items ?? []) {
-      jobs.push({ id: String(job.id), title: job.title, location: job.location, url: job.job_url ?? job.absolute_url });
+      jobs.push({
+        id: String(job.id),
+        title: job.title,
+        location: job.location,
+        url: job.job_url ?? job.absolute_url,
+      });
     }
     page = result.data.next_page;
   }
@@ -45,7 +71,8 @@ const matches = (job) => {
   const location = (job.location ?? "").toLowerCase();
   return (
     config.keywords.some((k) => title.includes(k.toLowerCase())) &&
-    (config.locations.length === 0 || config.locations.some((l) => location.includes(l.toLowerCase())))
+    (config.locations.length === 0 ||
+      config.locations.some((l) => location.includes(l.toLowerCase())))
   );
 };
 
@@ -53,17 +80,31 @@ await mkdir(new URL("./snapshots/", import.meta.url), { recursive: true });
 const sections = [];
 let credits = 0;
 
+const newSnapshots = new Map();
+
 for (const company of config.companies) {
   try {
     const { jobs, credits: cost } = await fetchJobs(company);
     credits += cost;
     const file = new URL(`./snapshots/${company.slug}.json`, import.meta.url);
     const previous = await readFile(file, "utf8").then(JSON.parse, () => null);
-    await writeFile(file, JSON.stringify(jobs.map((j) => j.id)));
+    newSnapshots.set(
+      file,
+      jobs.map((j) => j.id),
+    );
     const seen = new Set(previous ?? []);
-    const fresh = jobs.filter((j) => matches(j) && (previous === null || !seen.has(j.id)));
-    console.log(`${company.name}: ${jobs.length} open roles, ${fresh.length} new matches${previous === null ? " (first run)" : ""}`);
-    if (fresh.length) sections.push({ company: company.name, jobs: fresh.slice(0, config.maxPerCompany ?? 10), more: Math.max(0, fresh.length - (config.maxPerCompany ?? 10)) });
+    const fresh = jobs.filter(
+      (j) => matches(j) && (previous === null || !seen.has(j.id)),
+    );
+    console.log(
+      `${company.name}: ${jobs.length} open roles, ${fresh.length} new matches${previous === null ? " (first run)" : ""}`,
+    );
+    if (fresh.length)
+      sections.push({
+        company: company.name,
+        jobs: fresh.slice(0, config.maxPerCompany ?? 10),
+        more: Math.max(0, fresh.length - (config.maxPerCompany ?? 10)),
+      });
   } catch (error) {
     console.log(`Skipped ${error.message}`);
   }
@@ -74,8 +115,21 @@ const week = new Date().toISOString().slice(0, 10);
 const email = <WeeklyDigest week={week} sections={sections} />;
 await writeFile(new URL("./digest.html", import.meta.url), await render(email));
 
+/**
+ *
+ * @param {Map<File, Array<string>} snapshots
+ */
+async function writeSnapshots(snapshots) {
+  await Promise.all(
+    Array.from(snapshots.entries()).map(async ([file, content]) =>
+      writeFile(file, JSON.stringify(content)),
+    ),
+  );
+}
+
 if (!sections.length) {
   console.log("No new matching roles, nothing to send.");
+  await writeSnapshots(newSnapshots);
 } else if (process.env.RESEND_API_KEY) {
   const resend = new Resend(process.env.RESEND_API_KEY);
   const { data, error } = await resend.emails.send({
@@ -84,7 +138,15 @@ if (!sections.length) {
     subject: "New roles this week",
     react: email,
   });
-  console.log(error ? `Resend error: ${error.message}` : `Sent with Resend, id ${data.id}`);
+  if (error) {
+    console.error(`Resend error: ${error.message}`);
+    process.exitCode = 1;
+  } else {
+    await writeSnapshots(newSnapshots);
+    console.log(`Sent with Resend, id ${data.id}`);
+  }
 } else {
-  console.log("Set RESEND_API_KEY to send. The email was written to digest.html.");
+  console.log(
+    "Set RESEND_API_KEY to send. The email was written to digest.html.",
+  );
 }
