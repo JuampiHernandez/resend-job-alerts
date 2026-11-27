@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "start": "tsx index.jsx"
+    "start": "tsx --env-file-if-exists=.env index.jsx"
   },
   "dependencies": {
     "@react-email/components": "^1.0.12",

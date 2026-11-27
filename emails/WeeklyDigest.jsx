@@ -24,7 +24,12 @@ export default function WeeklyDigest({ week = "2026-11-16", sections = [] }) {
                   {job.location ? ` · ${job.location}` : ""}
                 </Text>
               ))}
-              {section.more ? <Text style={{ color: "#555", margin: "4px 0" }}>Plus {section.more} more</Text> : null}
+              {section.more ? (
+                <Text style={{ color: "#555", margin: "4px 0" }}>
+                  Plus {section.more} more.{" "}
+                  {section.boardUrl ? <Link href={section.boardUrl}>See all roles at {section.company}</Link> : null}
+                </Text>
+              ) : null}
             </Section>
           ))}
           <Hr />
