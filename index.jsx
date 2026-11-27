@@ -15,21 +15,28 @@ const BOARDS = {
     provider: "ashbyhq-com",
     capability: "jobs/jobs",
     option: "board",
-    perPage: 25,
+    perPage: 200,
+    url: (slug) => `https://jobs.ashbyhq.com/${slug}`,
   },
   greenhouse: {
     provider: "greenhouse-io",
     capability: "jobs/jobs",
     option: "board_token",
     perPage: 200,
+    url: (slug) => `https://job-boards.greenhouse.io/${slug}`,
   },
 };
 
 async function fetchJobs(company) {
   const board = BOARDS[company.board];
+  if (!board) {
+    throw new Error(`${company.name}: unknown board "${company.board}"`);
+  }
+  const maxPages = config.maxPagesPerCompany ?? 5;
   const jobs = [];
   let credits = 0;
-  for (let page = 1; page && page <= (config.maxPagesPerCompany ?? 5); ) {
+  let page = 1;
+  while (page && page <= maxPages) {
     const res = await fetch("https://api.firecrawl.dev/v2/scrape", {
       method: "POST",
       headers: {
@@ -48,12 +55,18 @@ async function fetchJobs(company) {
         },
       }),
     });
-    const result = (await res.json()).data.alexandria[0];
+    if (!res.ok) {
+      throw new Error(`${company.name}: [${res.status}] ${res.statusText} ${await res.text()}`);
+    }
+    const result = (await res.json())?.data?.alexandria?.[0];
+    if (!result) {
+      throw new Error(`${company.name}: unexpected response from Firecrawl`);
+    }
     if (result.error) {
       throw new Error(`${company.name}: ${result.error.message}`);
     }
     credits += result.creditsCost ?? 0;
-    for (const job of result.data.items ?? []) {
+    for (const job of result.data?.items ?? []) {
       jobs.push({
         id: String(job.id),
         title: job.title,
@@ -61,7 +74,12 @@ async function fetchJobs(company) {
         url: job.job_url ?? job.absolute_url,
       });
     }
-    page = result.data.next_page;
+    page = result.data?.next_page;
+  }
+  if (page) {
+    console.warn(
+      `${company.name}: stopped after ${maxPages} pages, later roles were not checked`,
+    );
   }
   return { jobs, credits };
 }
@@ -102,11 +120,13 @@ for (const company of config.companies) {
     if (fresh.length)
       sections.push({
         company: company.name,
+        boardUrl: BOARDS[company.board].url(company.slug),
         jobs: fresh.slice(0, config.maxPerCompany ?? 10),
         more: Math.max(0, fresh.length - (config.maxPerCompany ?? 10)),
       });
   } catch (error) {
     console.log(`Skipped ${error.message}`);
+    process.exitCode = 1;
   }
 }
 console.log(`Firecrawl credits used: ${credits}`);
@@ -115,13 +135,9 @@ const week = new Date().toISOString().slice(0, 10);
 const email = <WeeklyDigest week={week} sections={sections} />;
 await writeFile(new URL("./digest.html", import.meta.url), await render(email));
 
-/**
- *
- * @param {Map<File, Array<string>} snapshots
- */
 async function writeSnapshots(snapshots) {
   await Promise.all(
-    Array.from(snapshots.entries()).map(async ([file, content]) =>
+    Array.from(snapshots.entries()).map(([file, content]) =>
       writeFile(file, JSON.stringify(content)),
     ),
   );
@@ -147,6 +163,6 @@ if (!sections.length) {
   }
 } else {
   console.log(
-    "Set RESEND_API_KEY to send. The email was written to digest.html.",
+    "Set RESEND_API_KEY to send. The email was written to digest.html, snapshots were not updated.",
   );
 }
